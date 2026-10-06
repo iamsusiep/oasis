@@ -34,7 +34,7 @@ def offline_token_counter(monkeypatch):
     )
 
 
-def completion(content=None, tool_calls=None):
+def completion(content=None, tool_calls=None, finish_reason="stop"):
     return ChatCompletion(
         id="fixture",
         created=0,
@@ -43,7 +43,7 @@ def completion(content=None, tool_calls=None):
         choices=[
             {
                 "index": 0,
-                "finish_reason": "stop",
+                "finish_reason": finish_reason,
                 "message": {
                     "role": "assistant",
                     "content": content,
@@ -164,3 +164,24 @@ async def test_call_limit_stops_before_contacting_endpoint(
         await model._arun(messages)
     assert len(contacted) == 1
     assert model.calls == 64
+
+
+@pytest.mark.asyncio
+async def test_truncated_response_is_not_a_success(tmp_path, monkeypatch):
+    async def fixture_response(
+        self, messages, response_format=None, tools=None
+    ):
+        return completion("An unfinished response", finish_reason="length")
+
+    monkeypatch.setattr(OpenAICompatibleModel, "_arun", fixture_response)
+    model = RecordedModel(
+        tmp_path,
+        model_type="fixture",
+        api_key="unused",
+        url="http://localhost:8000/v1",
+    )
+    with pytest.raises(RuntimeError, match="output token limit"):
+        await model._arun([{"role": "user", "content": "Hello"}])
+    record = json.loads((tmp_path / "requests.jsonl").read_text())
+    assert record["response"]["choices"][0]["finish_reason"] == "length"
+    assert record["error_type"] == "RuntimeError"

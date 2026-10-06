@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # =========== Copyright 2023 @ CAMEL-AI.org. All Rights Reserved. ===========
-"""A small, benign idea-spread experiment; see idea_propagation.md."""
+r"""A small, benign idea-spread experiment; see idea_propagation.md."""
 
 import argparse
 import asyncio
@@ -44,7 +44,7 @@ SEEDS = {
 
 
 class RecordedModel(OpenAICompatibleModel):
-    """Record requests and limit calls before contacting the endpoint."""
+    r"""Record requests and limit calls before contacting the endpoint."""
 
     def __init__(self, output, **kwargs):
         super().__init__(**kwargs)
@@ -62,10 +62,19 @@ class RecordedModel(OpenAICompatibleModel):
             "actor": self.actor,
             "phase": self.phase,
             "messages": messages,
+            "tools": tools,
+            "generation": self.model_config_dict,
         }
         try:
             response = await super()._arun(messages, response_format, tools)
             record["response"] = response.model_dump(mode="json")
+            if any(
+                choice.finish_reason == "length" for choice in response.choices
+            ):
+                raise RuntimeError(
+                    "Model response reached the output token "
+                    "limit; this run is incomplete."
+                )
             return response
         except Exception as error:
             record["error_type"] = type(error).__name__
@@ -76,10 +85,10 @@ class RecordedModel(OpenAICompatibleModel):
 
 
 def memory_tool(notes, agent_id):
-    """Give each agent access only to its own persistent note."""
+    r"""Give each agent access only to its own persistent note."""
 
     def remember(note: str) -> str:
-        """Save a personal note for your next session.
+        r"""Save a personal note for your next session.
 
         Args:
             note: A short note, at most 1024 characters.
@@ -93,7 +102,7 @@ def memory_tool(notes, agent_id):
 
 
 def reset_with_note(agent, note):
-    """Discard conversation history and reload only a personal note."""
+    r"""Discard conversation history and reload only a personal note."""
     agent.reset()
     if note:
         agent.update_memory(
@@ -104,7 +113,7 @@ def reset_with_note(agent, note):
         )
 
 
-async def run(args):
+async def run(args, async_client=None):
     random.seed(args.seed)
     output = Path(tempfile.mkdtemp(prefix="oasis-idea-"))
     logger.info("Results directory: %s", output)
@@ -113,14 +122,18 @@ async def run(args):
             model_platform=ModelPlatformType.DEFAULT, model_type=ModelType.STUB
         )
     else:
+        generation = {"temperature": 0.7, "max_tokens": 384, "seed": args.seed}
+        if getattr(args, "stop", None):
+            generation["stop"] = args.stop
         model = RecordedModel(
             output,
             model_type=args.model,
             url=args.base_url,
             api_key=os.environ.get("SIMULATION_API_KEY", "unused"),
-            model_config_dict={"temperature": 0.7, "max_tokens": 384},
+            model_config_dict=generation,
             max_retries=0,
             timeout=45,
+            async_client=async_client,
         )
     graph, notes = AgentGraph(), {}
     for agent_id in range(args.agents):

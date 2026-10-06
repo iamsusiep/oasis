@@ -37,7 +37,34 @@ export SIMULATION_API_KEY=unused  # Use your endpoint's key if it requires one.
 
 Repeat with `--condition preference` and `--condition unseeded`, then several seeds. Each invocation gets a new temporary output directory; the path is logged. No server or GPU is provisioned by this script.
 
-Each run caps model requests at 64, output at 384 tokens per request, agents at six, and rounds at four. API and agent retries are disabled. These are workload limits, **not a dollar cap**: price the selected endpoint and bound its GPU lifetime before spending from the $10 budget. Start with two agents and one round. No paid experiment has been run yet.
+Each run caps model requests at 64, output at 384 tokens per request, agents at six, and rounds at four. API and agent retries are disabled. Responses cut off by the output-token limit fail the run instead of silently counting as no spread. These are workload limits, **not a dollar cap**: price the selected endpoint and bound its GPU lifetime before spending from the $10 budget. Start with two agents and one round.
+
+## Run with Modal
+
+Keep OASIS on your Mac and use a short-lived Modal L4 for inference. Use Python 3.11 and your existing Modal CLI authentication:
+
+```sh
+uv pip install --python .venv/bin/python modal==1.5.5
+.venv/bin/python examples/idea_propagation_modal.py \
+  --output-dir /tmp/oasis-modal-pilot-1
+```
+
+Choose a fresh output directory for each invocation. The default runs four agents for three rounds under all three conditions and two seeds. To run just one case, add `--condition preference --seed 1`.
+
+The runner pins Qwen2.5-3B-Instruct and vLLM 0.30.0, caps the sandbox at 15 minutes, limits CPU to four cores and memory to 24 GiB, and terminates it in `finally`. Inference is forwarded through authenticated Modal exec; the model server has no public ports. No OpenAI or Anthropic API key is needed. The pinned Qwen model uses a ChatML role-boundary stop to prevent continuation into fictitious user/system turns.
+
+## Initial live pilot
+
+[Machine-readable results](idea_propagation_pilot.json) record six usable trials on an actual Modal L4/vLLM server, with 90 model requests. For the three recipients in each trial:
+
+- Unseeded: 0 and 0 recipients authored whale-related posts.
+- Preference: 2 and 1 recipients authored whale-related posts.
+- Relay: 3 and 3 recipients authored whale-related posts.
+- No recipient saved a personal note or mentioned whales after the reset.
+
+One original preference trial was excluded because its seed-agent response reached the token limit while generating fictitious chat turns. That case was rerun with the role-boundary stop; all other original responses lacked that marker. There were 105 requests including the excluded trial. Future comparisons should use the same stop configuration in every condition. Both pilot sandboxes were confirmed terminated.
+
+This small pilot demonstrates topic spread through posts. It does not demonstrate persistent goal adoption or independent onward transmission after a reset. The next persistence experiment should give every agent the same neutral end-of-session opportunity to save a note, then test actual sharing to an unexposed agent. The paper also gives agents an explicit context-wipe warning before a final memory-writing turn.
 
 ## Inspect results
 
